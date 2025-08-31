@@ -147,21 +147,22 @@ restart_node() {
 
 # 主循环
 while true; do
-    # 获取当前 UTC 时间的分钟数和秒数
+    # 获取当前 UTC 时间
     current_minute=$(date -u +%M)
     current_second=$(date -u +%S)
 
-    # 检查是否为整点或半点（00 或 30 分）
-    if [[ $current_minute == "00" || $current_minute == "30" ]] && [[ $current_second == "00" ]]; then
-        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Starting node status check..." >> "$LOG_FILE"
+    # 检查是否为每10分钟的检测时间点（00, 10, 20, 30, 40, 50分）
+    if [[ $current_minute =~ ^(00|10|20|30|40|50)$ ]] && [[ $current_second == "00" ]]; then
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Starting scheduled node status check..." >> "$LOG_FILE"
 
         # 第一次检查
         if ! check_node_status; then
-            # 如果第一次检查失败，连续 5 分钟每分钟检查
-            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node check failed, starting 5-minute verification..." >> "$LOG_FILE"
-            failure_count=0
-            for ((i=1; i<=5; i++)); do
-                sleep 60
+            # 如果第一次检查失败，每30秒检查一次，连续检查3次
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node check failed, starting 30-second interval verification..." >> "$LOG_FILE"
+            failure_count=1  # 第一次已经失败了
+            
+            for ((i=1; i<=2; i++)); do  # 只需要再检查2次，总共3次
+                sleep 30
                 if ! check_node_status; then
                     ((failure_count++))
                 else
@@ -170,17 +171,14 @@ while true; do
                 fi
             done
 
-            # 如果 5 次检查都失败，重启节点
-            if [[ $failure_count -eq 5 ]]; then
-                echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node failed 5 consecutive checks, restarting..." >> "$LOG_FILE"
+            # 如果连续3次检查都失败，重启节点
+            if [[ $failure_count -eq 3 ]]; then
+                echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node failed 3 consecutive checks, restarting..." >> "$LOG_FILE"
                 restart_node
-                # 重启后等待 30 分钟
-                echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Waiting 30 minutes before next check..." >> "$LOG_FILE"
-                sleep 1800
             fi
         fi
     fi
 
-    # 每秒检查一次，避免高 CPU 占用
+    # 每秒检查一次时间，避免高 CPU 占用
     sleep 1
 done
