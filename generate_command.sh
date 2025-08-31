@@ -4,11 +4,12 @@
 COMMAND_FILE="/root/aztec_start_command.txt"
 
 # 提示用户输入 aztec start 命令
-echo "请输入 aztec start 命令（按 Ctrl+D 或 Ctrl+C 结束输入）："
+echo "请输入 aztec start 命令（每行以 \\ 结尾，按 Ctrl+D 结束输入，或 Ctrl+C 退出）："
 
-# 使用 while 循环读取多行输入，直到用户按 Ctrl+D 或 Ctrl+C
+# 使用 while 循环读取多行输入，保留原始格式
 aztec_command=""
 while IFS= read -r line; do
+    # 保留原始行内容（包括行尾的 \）
     aztec_command+="$line\n"
 done
 
@@ -18,8 +19,8 @@ if [[ -z "$aztec_command" ]]; then
     exit 1
 fi
 
-# 将输入的命令保存到文件（去除末尾多余的换行符）
-echo -e "$aztec_command" | sed '/^$/d' > "$COMMAND_FILE"
+# 将命令保存到文件，保留换行符
+echo -n -e "$aztec_command" > "$COMMAND_FILE"
 
 # 确认保存成功
 if [[ $? -eq 0 ]]; then
