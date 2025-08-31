@@ -36,6 +36,11 @@ else
 fi
 # 等待确保旧实例终止
 sleep 5
+# 再次检查是否有残留实例
+RUNNING_PIDS=$(pgrep -f "$SCRIPT_NAME" | grep -v "$CURRENT_PID")
+if [[ -n "$RUNNING_PIDS" ]]; then
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Warning: Residual $SCRIPT_NAME instances still running (PIDs:$RUNNING_PIDS)" >> "$LOG_FILE"
+fi
 # 检查当前脚本是否仍在运行
 if ! ps -p "$CURRENT_PID" > /dev/null; then
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Current script (PID: $CURRENT_PID) was terminated, exiting..." >> "$LOG_FILE"
@@ -68,6 +73,8 @@ cleanup_aztec() {
     pkill -f "aztec start" 2>>"$LOG_FILE"
     if [[ $? -eq 0 ]]; then
         echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminated existing Aztec processes" >> "$LOG_FILE"
+    else
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - No Aztec processes found or failed to terminate" >> "$LOG_FILE"
     fi
 
     # 仅终止 session-Aztec
@@ -75,6 +82,8 @@ cleanup_aztec() {
     if [[ $? -eq 0 ]]; then
         tmux kill-session -t "$TMUX_SESSION" 2>>"$LOG_FILE"
         echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminated tmux session: $TMUX_SESSION" >> "$LOG_FILE"
+    else
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - No tmux session $TMUX_SESSION found" >> "$LOG_FILE"
     fi
 }
 
