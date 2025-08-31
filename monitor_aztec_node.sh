@@ -9,18 +9,24 @@ COMMAND_FILE="/root/aztec_start_command.txt"
 # tmux 会话名称
 TMUX_SESSION="session-Aztec"
 
-# 终止所有现有脚本实例
+# 终止所有现有脚本实例（排除当前脚本）
 SCRIPT_NAME=$(basename "$0")
 CURRENT_PID=$$
-echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminating any existing $SCRIPT_NAME instances..." >> "$LOG_FILE"
-pkill -f "$SCRIPT_NAME" 2>>"$LOG_FILE"
-if [[ $? -eq 0 ]]; then
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminated existing $SCRIPT_NAME instances" >> "$LOG_FILE"
+echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Checking for existing $SCRIPT_NAME instances..." >> "$LOG_FILE"
+RUNNING_PIDS=$(pgrep -f "$SCRIPT_NAME" | grep -v "$CURRENT_PID")
+if [[ -n "$RUNNING_PIDS" ]]; then
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminating existing $SCRIPT_NAME instances (PIDs: $RUNNING_PIDS)..." >> "$LOG_FILE"
+    echo "$RUNNING_PIDS" | xargs -r kill -9 2>>"$LOG_FILE"
+    if [[ $? -eq 0 ]]; then
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminated existing $SCRIPT_NAME instances" >> "$LOG_FILE"
+    else
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Failed to terminate existing $SCRIPT_NAME instances" >> "$LOG_FILE"
+    fi
 else
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - No existing $SCRIPT_NAME instances found or failed to terminate" >> "$LOG_FILE"
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - No existing $SCRIPT_NAME instances found" >> "$LOG_FILE"
 fi
-# 等待片刻确保旧实例终止
-sleep 2
+# 等待确保旧实例终止
+sleep 5
 # 检查当前脚本是否仍在运行
 if ! ps -p "$CURRENT_PID" > /dev/null; then
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Current script (PID: $CURRENT_PID) was terminated, exiting..." >> "$LOG_FILE"
