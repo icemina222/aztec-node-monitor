@@ -9,10 +9,15 @@ COMMAND_FILE="/root/aztec_start_command.txt"
 # tmux 会话名称
 TMUX_SESSION="session-Aztec"
 
+# 清空日志文件以避免混淆
+> "$LOG_FILE"
+
 # 终止所有现有脚本实例（排除当前脚本）
 SCRIPT_NAME=$(basename "$0")
 CURRENT_PID=$$
 echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Checking for existing $SCRIPT_NAME instances..." >> "$LOG_FILE"
+# 记录当前进程列表以便调试
+ps aux | grep "$SCRIPT_NAME" | grep -v grep >> "$LOG_FILE"
 # 使用 pgrep -f 查找进程，并通过 /proc/<pid>/cmdline 确认是脚本本身
 RUNNING_PIDS=""
 for pid in $(pgrep -f "$SCRIPT_NAME"); do
@@ -31,15 +36,36 @@ if [[ -n "$RUNNING_PIDS" ]]; then
     else
         echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Failed to terminate existing $SCRIPT_NAME instances" >> "$LOG_FILE"
     fi
+    # 多次尝试终止，确保清理干净
+    sleep 5
+    RUNNING_PIDS=""
+    for pid in $(pgrep -f "$SCRIPT_NAME"); do
+        if [[ $pid != $CURRENT_PID ]]; then
+            if [[ -f "/proc/$pid/cmdline" && $(cat "/proc/$pid/cmdline" | tr '\0' '\n' | grep -c "$SCRIPT_NAME") -gt 0 ]]; then
+                RUNNING_PIDS="$RUNNING_PIDS $pid"
+            fi
+        fi
+    done
+    if [[ -n "$RUNNING_PIDS" ]]; then
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Retrying to terminate residual $SCRIPT_NAME instances (PIDs:$RUNNING_PIDS)..." >> "$LOG_FILE"
+        echo "$RUNNING_PIDS" | xargs -r kill -9 2>>"$LOG_FILE"
+        if [[ $? -eq 0 ]]; then
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminated residual $SCRIPT_NAME instances" >> "$LOG_FILE"
+        else
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Failed to terminate residual $SCRIPT_NAME instances" >> "$LOG_FILE"
+        fi
+    fi
 else
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - No existing $SCRIPT_NAME instances found" >> "$LOG_FILE"
 fi
-# 等待确保旧实例终止
+# 最后检查残留实例
 sleep 5
-# 再次检查是否有残留实例
 RUNNING_PIDS=$(pgrep -f "$SCRIPT_NAME" | grep -v "$CURRENT_PID")
 if [[ -n "$RUNNING_PIDS" ]]; then
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Warning: Residual $SCRIPT_NAME instances still running (PIDs:$RUNNING_PIDS)" >> "$LOG_FILE"
+    ps aux | grep "$SCRIPT_NAME" | grep -v grep >> "$LOG_FILE"
+else
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - No residual $SCRIPT_NAME instances found" >> "$LOG_FILE"
 fi
 # 检查当前脚本是否仍在运行
 if ! ps -p "$CURRENT_PID" > /dev/null; then
