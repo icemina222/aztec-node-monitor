@@ -9,6 +9,21 @@ COMMAND_FILE="/root/aztec_start_command.txt"
 # tmux 会话名称
 TMUX_SESSION="session-Aztec"
 
+# 检查是否已有脚本实例运行，并终止现有实例
+SCRIPT_NAME=$(basename "$0")
+if [[ $(pgrep -f "$SCRIPT_NAME" | wc -l) -gt 2 ]]; then
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Detected multiple instances of $SCRIPT_NAME, terminating existing instances..." >> "$LOG_FILE"
+    pkill -f "$SCRIPT_NAME" --exclude $$ 2>>"$LOG_FILE"
+    if [[ $? -eq 0 ]]; then
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminated existing $SCRIPT_NAME instances" >> "$LOG_FILE"
+    else
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Failed to terminate existing $SCRIPT_NAME instances" >> "$LOG_FILE"
+    fi
+    # 等待片刻确保旧实例完全终止
+    sleep 2
+fi
+echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Starting $SCRIPT_NAME (single instance)" >> "$LOG_FILE"
+
 # 检查节点状态的函数
 check_node_status() {
     local result
@@ -78,33 +93,40 @@ restart_node() {
 
 # 主循环
 while true; do
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Starting node status check..." >> "$LOG_FILE"
+    # 获取当前 UTC 时间的分钟数和秒数
+    current_minute=$(date -u +%M)
+    current_second=$(date -u +%S)
 
-    # 立即检查节点状态
-    if ! check_node_status; then
-        # 如果检查失败，连续 5 分钟每分钟检查
-        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node check failed, starting 5-minute verification..." >> "$LOG_FILE"
-        failure_count=0
-        for ((i=1; i<=5; i++)); do
-            sleep 60
-            if ! check_node_status; then
-                ((failure_count++))
-            else
-                echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node recovered during verification (L2Tips: $(curl -s -X POST -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"node_getL2Tips","params":[],"id":67}' http://localhost:8080 | jq -r ".result.proven.number"))" >> "$LOG_FILE"
-                break
+    # 检查是否为整点或半点（00 或 30 分）
+    if [[ $current_minute == "00" || $current_minute == "30" ]] && [[ $current_second == "00" ]]; then
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Starting node status check..." >> "$LOG_FILE"
+
+        # 第一次检查
+        if ! check_node_status; then
+            # 如果第一次检查失败，连续 5 分钟每分钟检查
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node check failed, starting 5-minute verification..." >> "$LOG_FILE"
+            failure_count=0
+            for ((i=1; i<=5; i++)); do
+                sleep 60
+                if ! check_node_status; then
+                    ((failure_count++))
+                else
+                    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node recovered during verification (L2Tips: $(curl -s -X POST -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"node_getL2Tips","params":[],"id":67}' http://localhost:8080 | jq -r ".result.proven.number"))" >> "$LOG_FILE"
+                    break
+                fi
+            done
+
+            # 如果 5 次检查都失败，重启节点
+            if [[ $failure_count -eq 5 ]]; then
+                echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node failed 5 consecutive checks, restarting..." >> "$LOG_FILE"
+                restart_node
+                # 重启后等待 30 分钟
+                echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Waiting 30 minutes before next check..." >> "$LOG_FILE"
+                sleep 1800
             fi
-        done
-
-        # 如果 5 次检查都失败，重启节点
-        if [[ $failure_count -eq 5 ]]; then
-            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node failed 5 consecutive checks, restarting..." >> "$LOG_FILE"
-            restart_node
-            # 重启后等待 30 分钟
-            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Waiting 30 minutes before next check..." >> "$LOG_FILE"
-            sleep 1800
         fi
     fi
 
-    # 每分钟检查一次
-    sleep 60
+    # 每秒检查一次，避免高 CPU 占用
+    sleep 1
 done
