@@ -4,7 +4,7 @@
 COMMAND_FILE="/root/aztec_start_command.txt"
 
 # 提示用户输入 aztec start 命令
-echo "请输入 aztec start 命令（每行以 \\ 结尾，按 Ctrl+D 结束输入，或 Ctrl+C 退出）："
+echo "请输入 aztec start 命令（每行以 \\ 结尾，按 Ctrl+D退出）："
 
 # 使用 while 循环读取多行输入，保留原始格式
 aztec_command=""
