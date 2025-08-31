@@ -13,9 +13,18 @@ TMUX_SESSION="session-Aztec"
 SCRIPT_NAME=$(basename "$0")
 CURRENT_PID=$$
 echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Checking for existing $SCRIPT_NAME instances..." >> "$LOG_FILE"
-RUNNING_PIDS=$(pgrep -f "$SCRIPT_NAME" | grep -v "$CURRENT_PID")
+# 使用 pgrep -f 查找进程，并通过 /proc/<pid>/cmdline 确认是脚本本身
+RUNNING_PIDS=""
+for pid in $(pgrep -f "$SCRIPT_NAME"); do
+    if [[ $pid != $CURRENT_PID ]]; then
+        # 检查 /proc/<pid>/cmdline 是否包含脚本路径
+        if [[ -f "/proc/$pid/cmdline" && $(cat "/proc/$pid/cmdline" | tr '\0' '\n' | grep -c "$SCRIPT_NAME") -gt 0 ]]; then
+            RUNNING_PIDS="$RUNNING_PIDS $pid"
+        fi
+    fi
+done
 if [[ -n "$RUNNING_PIDS" ]]; then
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminating existing $SCRIPT_NAME instances (PIDs: $RUNNING_PIDS)..." >> "$LOG_FILE"
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminating existing $SCRIPT_NAME instances (PIDs:$RUNNING_PIDS)..." >> "$LOG_FILE"
     echo "$RUNNING_PIDS" | xargs -r kill -9 2>>"$LOG_FILE"
     if [[ $? -eq 0 ]]; then
         echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Terminated existing $SCRIPT_NAME instances" >> "$LOG_FILE"
