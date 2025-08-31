@@ -130,13 +130,48 @@ restart_node() {
     # 清理现有 aztec 进程和 tmux 会话
     cleanup_aztec
 
-    # 创建新的 tmux 会话并执行命令
+    # 强制清理tmux服务器，解决"server exited unexpectedly"问题
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Cleaning up tmux server..." >> "$LOG_FILE"
+    
+    # 杀死所有tmux进程
+    pkill -f tmux 2>>"$LOG_FILE" || true
+    
+    # 强制杀死tmux服务器
+    tmux kill-server 2>>"$LOG_FILE" || true
+    
+    # 清理所有tmux相关的socket文件和目录
+    rm -rf /tmp/tmux-* 2>>"$LOG_FILE" || true
+    
+    # 清理可能的其他socket位置
+    rm -rf /var/run/tmux-* 2>>"$LOG_FILE" || true
+    
+    # 等待确保清理完成
+    sleep 3
+
+    # 创建新的 tmux 会话并执行命令，增加重试机制
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Creating new tmux session $TMUX_SESSION" >> "$LOG_FILE"
-    tmux new-session -d -s "$TMUX_SESSION" 2>>"$LOG_FILE"
-    if [[ $? -ne 0 ]]; then
-        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Failed to create tmux session $TMUX_SESSION" >> "$LOG_FILE"
-        return 1
-    fi
+    
+    # 最多重试3次创建tmux会话
+    for ((retry=1; retry<=3; retry++)); do
+        tmux new-session -d -s "$TMUX_SESSION" 2>>"$LOG_FILE"
+        if [[ $? -eq 0 ]]; then
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Successfully created tmux session $TMUX_SESSION (attempt $retry)" >> "$LOG_FILE"
+            break
+        else
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Failed to create tmux session $TMUX_SESSION (attempt $retry)" >> "$LOG_FILE"
+            if [[ $retry -lt 3 ]]; then
+                # 再次清理并等待
+                tmux kill-server 2>>"$LOG_FILE" || true
+                rm -f /tmp/tmux-*/default 2>>"$LOG_FILE" || true
+                sleep 3
+            else
+                echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Failed to create tmux session after 3 attempts" >> "$LOG_FILE"
+                return 1
+            fi
+        fi
+    done
+    
+    # 发送命令到tmux会话
     tmux send-keys -t "$TMUX_SESSION" "$command" Enter 2>>"$LOG_FILE"
     if [[ $? -ne 0 ]]; then
         echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Failed to send command to tmux session $TMUX_SESSION" >> "$LOG_FILE"
