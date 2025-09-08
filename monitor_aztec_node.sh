@@ -77,9 +77,10 @@ echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Starting $SCRIPT_NAME (single instan
 # 检查节点状态的函数
 check_node_status() {
     local result
-    result=$(curl -s -X POST -H 'Content-Type: application/json' \
+    # 添加超时避免脚本卡住
+    result=$(timeout 30 curl -s -X POST -H 'Content-Type: application/json' \
         -d '{"jsonrpc":"2.0","method":"node_getL2Tips","params":[],"id":67}' \
-        http://localhost:8080 | jq -r ".result.proven.number")
+        http://localhost:8080 | jq -r ".result.proven.number" 2>/dev/null)
     
     # 检查结果是否为纯数字
     if [[ $result =~ ^[0-9]+$ ]]; then
@@ -91,9 +92,26 @@ check_node_status() {
     fi
 }
 
-# 清理 aztec 进程和 session-Aztec 会话
+# 清理 aztec 进程、tmux 会话和 Docker 容器
 cleanup_aztec() {
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Cleaning up existing Aztec processes and tmux session..." >> "$LOG_FILE"
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Cleaning up existing Aztec processes, tmux session, and Docker containers..." >> "$LOG_FILE"
+    
+    # 停止并删除所有Aztec相关Docker容器
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Cleaning up Aztec Docker containers..." >> "$LOG_FILE"
+    AZTEC_CONTAINERS=$(docker ps -aq --filter ancestor=aztecprotocol/aztec:latest 2>/dev/null)
+    if [[ -n "$AZTEC_CONTAINERS" ]]; then
+        docker rm -f $AZTEC_CONTAINERS 2>>"$LOG_FILE"
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Removed Aztec Docker containers: $AZTEC_CONTAINERS" >> "$LOG_FILE"
+    else
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - No Aztec Docker containers found" >> "$LOG_FILE"
+    fi
+    
+    # 清理可能存在的其他aztec相关容器（根据名称模式）
+    OTHER_CONTAINERS=$(docker ps -aq --filter name=aztec 2>/dev/null)
+    if [[ -n "$OTHER_CONTAINERS" ]]; then
+        docker rm -f $OTHER_CONTAINERS 2>>"$LOG_FILE"
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Removed other Aztec containers: $OTHER_CONTAINERS" >> "$LOG_FILE"
+    fi
     
     # 终止所有可能的 aztec 进程
     pkill -f "aztec start" 2>>"$LOG_FILE"
@@ -127,7 +145,7 @@ restart_node() {
     local command
     command=$(cat "$COMMAND_FILE")
 
-    # 清理现有 aztec 进程和 tmux 会话
+    # 清理现有 aztec 进程、tmux 会话和 Docker 容器
     cleanup_aztec
 
     # 强制清理tmux服务器，解决"server exited unexpectedly"问题
@@ -162,7 +180,7 @@ restart_node() {
             if [[ $retry -lt 3 ]]; then
                 # 再次清理并等待
                 tmux kill-server 2>>"$LOG_FILE" || true
-                rm -f /tmp/tmux-*/default 2>>"$LOG_FILE" || true
+                rm -rf /tmp/tmux-* 2>>"$LOG_FILE" || true
                 sleep 3
             else
                 echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Failed to create tmux session after 3 attempts" >> "$LOG_FILE"
@@ -178,6 +196,17 @@ restart_node() {
         return 1
     fi
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node restart command sent: $command" >> "$LOG_FILE"
+    
+    # 等待容器启动
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Waiting for container to start..." >> "$LOG_FILE"
+    sleep 10
+    
+    # 验证容器是否成功启动
+    if docker ps --filter ancestor=aztecprotocol/aztec:latest --format "table {{.Names}}" | grep -q aztec; then
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Aztec container started successfully" >> "$LOG_FILE"
+    else
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Warning: No Aztec container found after restart" >> "$LOG_FILE"
+    fi
 }
 
 # 主循环
@@ -201,7 +230,7 @@ while true; do
                 if ! check_node_status; then
                     ((failure_count++))
                 else
-                    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node recovered during verification (L2Tips: $(curl -s -X POST -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"node_getL2Tips","params":[],"id":67}' http://localhost:8080 | jq -r ".result.proven.number"))" >> "$LOG_FILE"
+                    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node recovered during verification" >> "$LOG_FILE"
                     break
                 fi
             done
