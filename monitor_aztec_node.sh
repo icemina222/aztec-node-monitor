@@ -197,16 +197,23 @@ restart_node() {
     fi
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node restart command sent: $command" >> "$LOG_FILE"
     
-    # 等待容器启动
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Waiting for container to start..." >> "$LOG_FILE"
-    sleep 10
+    # 等待节点服务启动并验证
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Waiting for node service to start..." >> "$LOG_FILE"
     
-    # 验证容器是否成功启动
-    if docker ps --filter ancestor=aztecprotocol/aztec:latest --format "table {{.Names}}" | grep -q aztec; then
-        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Aztec container started successfully" >> "$LOG_FILE"
-    else
-        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Warning: No Aztec container found after restart" >> "$LOG_FILE"
-    fi
+    # 等待最多2分钟让节点完全启动
+    for ((wait_time=0; wait_time<=120; wait_time+=10)); do
+        sleep 10
+        # 尝试检查节点状态
+        if timeout 10 curl -s -X POST -H 'Content-Type: application/json' \
+           -d '{"jsonrpc":"2.0","method":"node_getL2Tips","params":[],"id":67}' \
+           http://localhost:8080 >/dev/null 2>&1; then
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node service is responding (after ${wait_time}s)" >> "$LOG_FILE"
+            return 0
+        fi
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Still waiting for node service... (${wait_time}s)" >> "$LOG_FILE"
+    done
+    
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Warning: Node service did not respond within 2 minutes" >> "$LOG_FILE"
 }
 
 # 主循环
