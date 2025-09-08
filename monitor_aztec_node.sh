@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# 03:22
+
 # 日志文件
 LOG_FILE="/root/aztec_node_monitor.log"
 
