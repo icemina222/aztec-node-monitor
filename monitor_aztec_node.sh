@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 9.20 v1
+# 9.20 v2
 
 # 日志文件
 LOG_FILE="/root/aztec_node_monitor.log"
@@ -142,7 +142,7 @@ cleanup_aztec() {
     fi
 }
 
-# 重启节点的函数（保持原有时间间隔）
+# 重启节点的函数（优化版 - 延长到20分钟）
 restart_node() {
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Attempting to restart node..." >> "$LOG_FILE"
     
@@ -208,12 +208,20 @@ restart_node() {
     fi
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node restart command sent: $command" >> "$LOG_FILE"
     
-    # 等待节点服务启动并验证（保持原有的5分钟）
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Waiting for node service to start..." >> "$LOG_FILE"
+    # 等待节点服务启动并验证 - 延长到20分钟
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Waiting for node service to start (up to 20 minutes)..." >> "$LOG_FILE"
     
-    # 等待最多5分钟让节点完全启动
-    for ((wait_time=0; wait_time<=300; wait_time+=15)); do
-        sleep 15
+    # 等待最多20分钟让节点完全启动
+    local startup_success=false
+    for ((wait_time=0; wait_time<=1200; wait_time+=30)); do  # 20分钟 = 1200秒，每30秒检查一次
+        sleep 30
+        
+        # 检查节点进程是否还在运行
+        if ! pgrep -f "aztec start" > /dev/null; then
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Aztec process has stopped unexpectedly after ${wait_time}s" >> "$LOG_FILE"
+            return 1
+        fi
+        
         # 尝试检查节点状态
         local health_check
         health_check=$(timeout 15 curl -s -X POST -H 'Content-Type: application/json' \
@@ -222,28 +230,29 @@ restart_node() {
         
         if [[ $health_check =~ ^[0-9]+$ ]]; then
             echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node service is responding normally (L2Tips: $health_check, after ${wait_time}s)" >> "$LOG_FILE"
-            return 0
+            startup_success=true
+            break
         elif [[ -n "$health_check" && "$health_check" != "null" ]]; then
             echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node service responding but not ready yet (Response: $health_check, after ${wait_time}s)" >> "$LOG_FILE"
         else
             echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Still waiting for node service... (${wait_time}s)" >> "$LOG_FILE"
         fi
-        
-        # 检查节点进程是否还在运行
-        if ! pgrep -f "aztec start" > /dev/null; then
-            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Aztec process has stopped unexpectedly" >> "$LOG_FILE"
-            return 1
-        fi
     done
     
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Warning: Node service did not respond within 5 minutes, but process is still running" >> "$LOG_FILE"
-    
-    # 即使超时，如果进程还在运行，也不算完全失败
-    if pgrep -f "aztec start" > /dev/null; then
-        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Aztec process is still running, restart may be successful" >> "$LOG_FILE"
+    if [[ "$startup_success" == true ]]; then
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node restart completed successfully" >> "$LOG_FILE"
         return 0
     else
-        return 1
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Warning: Node service did not respond within 20 minutes" >> "$LOG_FILE"
+        
+        # 即使超时，如果进程还在运行，也不算完全失败
+        if pgrep -f "aztec start" > /dev/null; then
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Aztec process is still running, restart may eventually succeed" >> "$LOG_FILE"
+            return 0
+        else
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Error: Aztec process has stopped, restart failed" >> "$LOG_FILE"
+            return 1
+        fi
     fi
 }
 
