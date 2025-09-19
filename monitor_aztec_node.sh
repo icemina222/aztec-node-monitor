@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 9.20 v2
+# 9.20 v3
 
 # 日志文件
 LOG_FILE="/root/aztec_node_monitor.log"
