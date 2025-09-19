@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 03:22
+# 9.20 v1
 
 # 日志文件
 LOG_FILE="/root/aztec_node_monitor.log"
@@ -94,25 +94,34 @@ check_node_status() {
     fi
 }
 
-# 清理 aztec 进程、tmux 会话和 Docker 容器
+# 清理 aztec 进程、tmux 会话和 Docker 容器（改进版 - 只优化容器清理）
 cleanup_aztec() {
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Cleaning up existing Aztec processes, tmux session, and Docker containers..." >> "$LOG_FILE"
     
-    # 停止并删除所有Aztec相关Docker容器
-    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Cleaning up Aztec Docker containers..." >> "$LOG_FILE"
-    AZTEC_CONTAINERS=$(docker ps -aq --filter ancestor=aztecprotocol/aztec:latest 2>/dev/null)
+    # 使用优化的方式删除所有aztec开头的容器
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Cleaning up all Aztec Docker containers..." >> "$LOG_FILE"
+    
+    # 获取所有aztec开头的容器ID
+    AZTEC_CONTAINERS=$(docker ps -aq | xargs -I {} sh -c 'docker inspect --format="{{.Name}} {}" {} 2>/dev/null' | grep "^/aztec" | awk '{print $2}' 2>/dev/null)
+    
     if [[ -n "$AZTEC_CONTAINERS" ]]; then
-        docker rm -f $AZTEC_CONTAINERS 2>>"$LOG_FILE"
-        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Removed Aztec Docker containers: $AZTEC_CONTAINERS" >> "$LOG_FILE"
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Found Aztec containers: $AZTEC_CONTAINERS" >> "$LOG_FILE"
+        echo "$AZTEC_CONTAINERS" | xargs docker rm -f 2>>"$LOG_FILE"
+        if [[ $? -eq 0 ]]; then
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Successfully removed Aztec containers: $AZTEC_CONTAINERS" >> "$LOG_FILE"
+        else
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Warning: Some containers may have failed to remove" >> "$LOG_FILE"
+        fi
     else
-        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - No Aztec Docker containers found" >> "$LOG_FILE"
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - No Aztec containers found" >> "$LOG_FILE"
     fi
     
-    # 清理可能存在的其他aztec相关容器（根据名称模式）
-    OTHER_CONTAINERS=$(docker ps -aq --filter name=aztec 2>/dev/null)
-    if [[ -n "$OTHER_CONTAINERS" ]]; then
-        docker rm -f $OTHER_CONTAINERS 2>>"$LOG_FILE"
-        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Removed other Aztec containers: $OTHER_CONTAINERS" >> "$LOG_FILE"
+    # 作为备用，也清理可能遗漏的容器（保留原有逻辑作为双重保险）
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Double-checking for any remaining Aztec containers..." >> "$LOG_FILE"
+    REMAINING_CONTAINERS=$(docker ps -aq --filter ancestor=aztecprotocol/aztec 2>/dev/null)
+    if [[ -n "$REMAINING_CONTAINERS" ]]; then
+        docker rm -f $REMAINING_CONTAINERS 2>>"$LOG_FILE"
+        echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Cleaned up remaining containers: $REMAINING_CONTAINERS" >> "$LOG_FILE"
     fi
     
     # 终止所有可能的 aztec 进程
@@ -133,7 +142,7 @@ cleanup_aztec() {
     fi
 }
 
-# 重启节点的函数
+# 重启节点的函数（保持原有时间间隔）
 restart_node() {
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Attempting to restart node..." >> "$LOG_FILE"
     
@@ -199,7 +208,7 @@ restart_node() {
     fi
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Node restart command sent: $command" >> "$LOG_FILE"
     
-    # 等待节点服务启动并验证
+    # 等待节点服务启动并验证（保持原有的5分钟）
     echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') - Waiting for node service to start..." >> "$LOG_FILE"
     
     # 等待最多5分钟让节点完全启动
